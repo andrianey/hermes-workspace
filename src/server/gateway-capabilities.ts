@@ -620,7 +620,10 @@ async function probeMcp(): Promise<boolean> {
   }
   // Use dashboardFetch so the probe goes through the same authenticated path
   // workspace routes use at runtime — otherwise an auth-protected dashboard
-  // /api/mcp would falsely report capability=false (Codex MAJOR finding).
+  // /api/mcp/servers would falsely report capability=false (Codex MAJOR
+  // finding). Note: the real Agent endpoint is /api/mcp/servers, not the
+  // bare /api/mcp — confirmed live (bare path 404s with "No such API
+  // endpoint", /api/mcp/servers returns the actual {servers:[...]} list).
   try {
     const res = await dashboardFetch('/api/mcp/servers', {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
