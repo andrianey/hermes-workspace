@@ -204,6 +204,8 @@ export type EnhancedCapabilities = {
 export type DashboardCapabilities = {
   dashboard: {
     available: boolean
+    /** Whether an authenticated dashboard API probe succeeded. */
+    authenticated: boolean
     url: string
   }
 }
@@ -247,6 +249,7 @@ let capabilities: GatewayCapabilities = {
   kanban: false,
   dashboard: {
     available: false,
+    authenticated: false,
     url: CLAUDE_DASHBOARD_URL,
   },
   probed: false,
@@ -696,18 +699,28 @@ async function probeMcpConfigKey(): Promise<boolean> {
   }
 }
 
-async function probeDashboard(): Promise<{ available: boolean; url: string }> {
+async function probeDashboard(): Promise<{ available: boolean; authenticated: boolean; url: string }> {
+  const unavailable = { available: false, authenticated: false, url: CLAUDE_DASHBOARD_URL }
   try {
     const res = await fetch(`${CLAUDE_DASHBOARD_URL}/api/status`, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     })
-    if (!res.ok) return { available: false, url: CLAUDE_DASHBOARD_URL }
+    if (!res.ok) return unavailable
     const body = (await res.json()) as { version?: string }
-    if (!body.version) return { available: false, url: CLAUDE_DASHBOARD_URL }
+    if (!body.version) return unavailable
     await fetchDashboardToken().catch(() => '')
-    return { available: true, url: CLAUDE_DASHBOARD_URL }
+    let authenticated = false
+    try {
+      const authRes = await dashboardFetch('/api/sessions?limit=1&offset=0', {
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      })
+      authenticated = authRes.ok
+    } catch {
+      authenticated = false
+    }
+    return { available: true, authenticated, url: CLAUDE_DASHBOARD_URL }
   } catch {
-    return { available: false, url: CLAUDE_DASHBOARD_URL }
+    return unavailable
   }
 }
 
@@ -1038,6 +1051,18 @@ export async function forceReprobeGateway(): Promise<GatewayCapabilities> {
 
 export function getCapabilities(): GatewayCapabilities {
   return capabilities
+}
+
+/** Mark the dashboard reachable but temporarily unauthenticated after a 401. */
+export function markDashboardUnauthenticated(): void {
+  if (!capabilities.dashboard.authenticated) return
+  capabilities = {
+    ...capabilities,
+    dashboard: { ...capabilities.dashboard, authenticated: false },
+  }
+  console.warn(
+    '[gateway] dashboard APIs rejected credentials (401) — routing dashboard-backed calls to the gateway until the next probe',
+  )
 }
 
 export function getCoreCapabilities(): CoreCapabilities {
