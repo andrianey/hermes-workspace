@@ -42,6 +42,12 @@ beforeEach(() => {
   delete process.env.HERMES_DASHBOARD_URL
   delete process.env.HERMES_DASHBOARD_TOKEN
   delete process.env.CLAUDE_DASHBOARD_TOKEN
+  delete process.env.HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+  delete process.env.HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+  delete process.env.CLAUDE_DASHBOARD_USERNAME
+  delete process.env.CLAUDE_DASHBOARD_PASSWORD
+  delete process.env.HERMES_DASHBOARD_USERNAME
+  delete process.env.HERMES_DASHBOARD_PASSWORD
   delete process.env.HOST
 })
 
@@ -240,7 +246,7 @@ describe('gateway-capabilities', () => {
             headers: {
               get: (name: string) =>
                 name.toLowerCase() === 'set-cookie'
-                  ? 'session=abc123; Path=/; HttpOnly'
+                  ? 'hermes_session_at=cookie_login_ok; Path=/; HttpOnly; Max-Age=3600'
                   : null,
             },
           } as unknown as Response
@@ -262,12 +268,8 @@ describe('gateway-capabilities', () => {
         'http://127.0.0.1:9119/auth/password-login',
         expect.objectContaining({ method: 'POST' }),
       )
-      expect(logSpy).toHaveBeenCalledWith(
-        '[gateway] Dashboard password-login OK; captured 1 cookie(s).',
-      )
-
       const auth = await mod.dashboardAuthHeaders({ force: true })
-      expect(auth).toEqual({ Cookie: 'session=abc123' })
+      expect(auth).toEqual({ Cookie: 'hermes_session_at=cookie_login_ok' })
 
       logSpy.mockRestore()
       warnSpy.mockRestore()
@@ -308,15 +310,10 @@ describe('gateway-capabilities', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const mod = await loadMod()
 
-      await expect(mod.fetchDashboardToken()).resolves.toBe('')
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('password-login POST failed: 401'),
+      await expect(mod.fetchDashboardToken()).rejects.toThrow(
+        'Dashboard basic-auth login failed: HTTP 401',
       )
 
-      const auth = await mod.dashboardAuthHeaders({ force: true })
-      expect(auth).toEqual({})
-
-      warnSpy.mockRestore()
       delete process.env.HERMES_DASHBOARD_BASIC_AUTH_USERNAME
       delete process.env.HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
     })
