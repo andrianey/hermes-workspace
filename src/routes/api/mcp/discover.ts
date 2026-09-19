@@ -39,13 +39,39 @@ export const Route = createFileRoute('/api/mcp/discover')({
         if (csrfCheck) return csrfCheck
         const capabilities = await ensureGatewayProbed()
         if (capabilities.mcpFallback && !capabilities.mcp) {
-          // Phase 1.5: live discover requires the runtime endpoint.
+          // The Dashboard is the authenticated MCP runtime surface for split
+          // deployments. Use it even when the legacy gateway probe is false.
+          try {
+            const raw = (await request.json()) as unknown
+            const parsed = parseMcpServerInput(raw)
+            if (!parsed.ok) {
+              return json(
+                { ok: false, error: 'Invalid MCP discover payload', errors: parsed.errors },
+                { status: 400 },
+              )
+            }
+            const response = await dashboardFetch('/api/mcp/discover', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(parsed.value),
+              signal: AbortSignal.timeout(DISCOVER_TIMEOUT_MS),
+            })
+            if (response.status !== 404 && response.status !== 405) {
+              const payload = (await response.json().catch(() => ({}))) as unknown
+              const result = normalizeTestResult(payload)
+              return json(
+                { ok: result.ok, tools: result.discoveredTools, error: result.error },
+                { status: response.ok ? 200 : response.status || 502 },
+              )
+            }
+          } catch {
+            // Fall through to the normal unavailable response.
+          }
           return json({
             ok: false,
             status: 'unknown',
             discoveredTools: [],
-            error:
-              'Live test/discover requires hermes-agent /api/mcp runtime endpoint, not yet available on this dashboard.',
+            error: 'The authenticated Dashboard does not expose MCP discovery.',
           })
         }
         if (!capabilities.mcp) {

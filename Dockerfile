@@ -24,6 +24,10 @@ RUN pnpm install --frozen-lockfile
 # Copy sources and build
 COPY . .
 RUN pnpm build
+# Export a production-only dependency tree. Unlike copying node_modules and
+# pruning it in place, deploy creates a clean runtime tree without carrying
+# development packages into the runtime layer.
+RUN pnpm deploy --prod /app/runtime
 
 # ─── runtime stage ────────────────────────────────────────────────────────
 FROM node:22-slim
@@ -45,10 +49,11 @@ WORKDIR /app
 # imports the handler module, runs top-level code, and exits (code 0) because
 # nothing keeps the event loop alive — see issue #129.
 COPY --from=build --chown=workspace:workspace /app/dist ./dist
-COPY --from=build --chown=workspace:workspace /app/node_modules ./node_modules
-COPY --from=build --chown=workspace:workspace /app/package.json ./package.json
+COPY --from=build --chown=workspace:workspace /app/runtime/node_modules ./node_modules
+COPY --from=build --chown=workspace:workspace /app/runtime/package.json ./package.json
 COPY --from=build --chown=workspace:workspace /app/server-entry.js ./server-entry.js
 COPY --from=build --chown=workspace:workspace /app/skills ./skills
+COPY --from=build --chown=workspace:workspace /app/assets ./assets
 COPY --chown=workspace:workspace docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 ENV NODE_ENV=production \

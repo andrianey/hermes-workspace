@@ -622,7 +622,7 @@ async function probeMcp(): Promise<boolean> {
   // workspace routes use at runtime — otherwise an auth-protected dashboard
   // /api/mcp would falsely report capability=false (Codex MAJOR finding).
   try {
-    const res = await dashboardFetch('/api/mcp', {
+    const res = await dashboardFetch('/api/mcp/servers', {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     })
     if (await validate(res)) return true
@@ -630,7 +630,7 @@ async function probeMcp(): Promise<boolean> {
     // fall through to gateway path
   }
   try {
-    const res = await fetch(`${CLAUDE_API}/api/mcp`, {
+    const res = await fetch(`${CLAUDE_API}/api/mcp/servers`, {
       headers: authHeaders(),
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     })
@@ -967,11 +967,17 @@ export async function probeGateway(options?: {
     // exposes `config.mcp_servers` AND we are loopback-only, allow a config
     // -backed CRUD path. Test/Discover/Logs remain disabled in this mode.
     const dashboardConfigAvailable = dashboard.available || legacyConfig
+    // Config-backed MCP CRUD is also safe for split-host deployments when
+    // the dashboard connection is authenticated with the configured Basic Auth
+    // login. The previous loopback-only gate made a remote Workspace report
+    // MCP unavailable even though the Dashboard exposed mcp_servers.
+    const authenticatedDashboardFallback =
+      Boolean(DASHBOARD_BASIC_AUTH_USERNAME && DASHBOARD_BASIC_AUTH_PASSWORD)
     const mcpFallback =
       !mcp &&
       dashboard.available &&
       dashboardConfigAvailable &&
-      isLocalhostDeployment() &&
+      (isLocalhostDeployment() || authenticatedDashboardFallback) &&
       (await probeMcpConfigKey())
 
     capabilities = {

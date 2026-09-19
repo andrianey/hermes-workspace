@@ -41,23 +41,43 @@ export const Route = createFileRoute('/api/mcp/test')({
         if (csrfCheck) return csrfCheck
         const capabilities = await ensureGatewayProbed()
         if (capabilities.mcpFallback && !capabilities.mcp) {
-          // Phase 1.5 fallback: shell out to `hermes mcp test <name>` and
-          // parse stdout. Reuses the CLI's _probe_single_server logic
-          // without duplicating MCP protocol handling on the workspace
-          // side. Only the by-name form is supported (config-only mode);
-          // ad-hoc client-input tests still need the runtime endpoint.
+          // The Dashboard exposes the MCP runtime routes even when the
+          // legacy gateway capability probe cannot see /api/mcp. Prefer that
+          // authenticated server-side path; only use the CLI when the route
+          // is genuinely unavailable.
+          const raw = (await request.json()) as Record<string, unknown>
+          const name = typeof raw.name === 'string' ? raw.name : null
+          if (!name) {
+            return json({
+              ok: false,
+              status: 'unknown',
+              discoveredTools: [],
+              error: 'MCP test requires an existing server name.',
+            })
+          }
           try {
-            const raw = (await request.json()) as Record<string, unknown>
-            const name = typeof raw.name === 'string' ? raw.name : null
-            if (!name) {
-              return json({
-                ok: false,
-                status: 'unknown',
-                discoveredTools: [],
-                error:
-                  'Local fallback only supports testing existing servers by name.',
+            const response = await dashboardFetch('/api/mcp/test', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name }),
+              signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
+            })
+            if (response.status !== 404 && response.status !== 405) {
+              const payload = (await response.json().catch(() => ({}))) as unknown
+              const result = normalizeTestResult(payload)
+              setProbe(name, {
+                status: result.status,
+                toolCount: result.discoveredTools.length,
+                toolNames: result.discoveredTools.map((t) => t.name),
+                latencyMs: result.latencyMs ?? null,
+                error: result.error ?? null,
               })
+              return json(result, { status: response.ok ? 200 : response.status || 502 })
             }
+          } catch {
+            // Fall through to the optional local CLI bridge.
+          }
+          try {
             const result = await runHermesMcpTest(name, { timeoutMs: TEST_TIMEOUT_MS })
             setProbe(name, {
               status: result.status,
@@ -68,15 +88,7 @@ export const Route = createFileRoute('/api/mcp/test')({
             })
             return json(result)
           } catch (err) {
-            return json(
-              {
-                ok: false,
-                status: 'failed',
-                discoveredTools: [],
-                error: safeErrorMessage(err),
-              },
-              { status: 500 },
-            )
+            return json({ ok: false, status: 'failed', discoveredTools: [], error: safeErrorMessage(err) }, { status: 500 })
           }
         }
         if (!capabilities.mcp) {
