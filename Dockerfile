@@ -27,7 +27,7 @@ RUN pnpm build
 # Export a production-only dependency tree. Unlike copying node_modules and
 # pruning it in place, deploy creates a clean runtime tree without carrying
 # development packages into the runtime layer.
-RUN pnpm deploy --filter . --prod /app/runtime
+RUN pnpm deploy --filter . --prod --legacy /app/runtime
 
 # ─── runtime stage ────────────────────────────────────────────────────────
 FROM node:22-slim
